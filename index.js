@@ -46,6 +46,8 @@ function normalizeWindowsPath(pathStr) {
    📤 UPLOAD ROUTE
 =========================== */
 app.post("/upload", upload.single("video"), (req, res) => {
+  console.log('k');
+  
   if (!req.file) {
     return res.status(400).json({ message: "No video uploaded" });
   }
@@ -130,10 +132,29 @@ app.post("/upload", upload.single("video"), (req, res) => {
 
 app.post("/analyze", async (req, res) => {
   try {
-    const { path: uploadedPath } = req.body;
+    const { path: uploadedPath, perspective  } = req.body;
 
     if (!uploadedPath) {
       return res.status(400).json({ message: "No video path provided" });
+    }
+    if (!perspective) {
+  return res.status(400).json({ message: "No perspective provided" });
+
+
+}
+
+   // 3️⃣ Perspective instruction (KEY PART)
+    let perspectiveInstruction = "";
+
+    if (perspective === "left") {
+      perspectiveInstruction =
+        "The user is the boxer on the LEFT side of the video. Focus ONLY on the left-side boxer.";
+    } else if (perspective === "right") {
+      perspectiveInstruction =
+        "The user is the boxer on the RIGHT side of the video. Focus ONLY on the right-side boxer.";
+    } else if (perspective === "alone") {
+      perspectiveInstruction =
+        "The user is the ONLY boxer in the video. Analyze their solo performance.";
     }
 
     // 1️⃣ Copy uploaded file → myVideo/vid.mp4
@@ -178,12 +199,16 @@ app.post("/analyze", async (req, res) => {
             {
               text: `
 You are a professional boxing coach.
-Analyze this boxing video and give:
+
+${perspectiveInstruction}
+
+Analyze the user's performance and provide:
 1. Punching mistakes
 2. Footwork issues
-3. Defense problems
+3. Defensive problems
 4. 3 clear improvement tips
-Be concise and practical.
+
+Be concise, practical, and beginner-friendly.
               `,
             },
           ],
