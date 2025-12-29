@@ -17,11 +17,11 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-// 🔹 absolute uploads folder
-const uploadDir = path.join(process.cwd(), "uploads");
+// ✅ Use /tmp for Vercel (only writable directory)
+const uploadDir = path.join("/tmp", "uploads");
 
 if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
+  fs.mkdirSync(uploadDir, { recursive: true });
 }
 
 // 🔹 multer config
@@ -34,9 +34,6 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// 🔹 serve uploads as static files
-app.use("/uploads", express.static(uploadDir));
-
 // 🔹 normalize windows path
 function normalizeWindowsPath(pathStr) {
   return pathStr.replace(/\\\\/g, "\\");
@@ -46,7 +43,7 @@ function normalizeWindowsPath(pathStr) {
    📤 UPLOAD ROUTE
 =========================== */
 app.post("/upload", upload.single("video"), (req, res) => {
-  console.log('k');
+  console.log('Upload received');
   
   if (!req.file) {
     return res.status(400).json({ message: "No video uploaded" });
@@ -58,92 +55,25 @@ app.post("/upload", upload.single("video"), (req, res) => {
 
   res.json({
     success: true,
-    congempath, // 🔑 frontend will send this to /analyze
+    congempath,
   });
 });
 
 /* ===========================
    🤖 ANALYZE ROUTE (Gemini)
 =========================== */
-// app.post("/analyze", async (req, res) => {
-//   try {
-//     const { path: videoPath } = req.body; // ✅ renamed
-//     console.log("REQUEST BODY:", req.body);
-
-//     if (!videoPath) {
-//       return res.status(400).json({ message: "No video path provided" });
-//     }
-
-//     const absolutePath = path.resolve(videoPath); // ✅ works now
-
-//     if (!fs.existsSync(absolutePath)) {
-//       return res.status(404).json({ message: "Video file not found" });
-//     }
-
-//     console.log("Analyzing video at:", absolutePath);
-
-//     const file = await ai.files.upload({
-//       file: absolutePath,
-//       config: {
-//         mimeType: "video/mp4",
-//       },
-//     });
-
-//     let activeFile = await ai.files.get(file.name);
-//     while (activeFile.state === "PROCESSING") {
-//       await new Promise((r) => setTimeout(r, 2000));
-//       activeFile = await ai.files.get(file.name);
-//     }
-
-//     if (activeFile.state === "FAILED") {
-//       throw new Error("Gemini video processing failed");
-//     }
-
-//     const result = await ai.models.generateContent({
-//       model: "gemini-2.5-flash",
-//       contents: [
-//         {
-//           role: "user",
-//           parts: [
-//             {
-//               fileData: {
-//                 fileUri: activeFile.uri,
-//                 mimeType: activeFile.mimeType,
-//               },
-//             },
-//             {
-//               text:
-//                 "You are a boxing coach. Analyze the video and give beginner-friendly feedback on stance, punches, footwork, and defense.",
-//             },
-//           ],
-//         },
-//       ],
-//     });
-
-//     res.json({
-//       success: true,
-//       feedback: result.text,
-//     });
-//   } catch (err) {
-//     console.error("ANALYZE ERROR:", err);
-//     res.status(500).json({ message: "Analysis failed" });
-//   }
-// });
-
 app.post("/analyze", async (req, res) => {
   try {
-    const { path: uploadedPath, perspective  } = req.body;
+    const { path: uploadedPath, perspective } = req.body;
 
     if (!uploadedPath) {
       return res.status(400).json({ message: "No video path provided" });
     }
     if (!perspective) {
-  return res.status(400).json({ message: "No perspective provided" });
+      return res.status(400).json({ message: "No perspective provided" });
+    }
 
-
-}
-
-   // 3️⃣ Perspective instruction (KEY PART)
+    // 3️⃣ Perspective instruction
     let perspectiveInstruction = "";
 
     if (perspective === "left") {
@@ -157,18 +87,18 @@ app.post("/analyze", async (req, res) => {
         "The user is the ONLY boxer in the video. Analyze their solo performance.";
     }
 
-    // 1️⃣ Copy uploaded file → myVideo/vid.mp4
-    const targetDir = path.join(process.cwd(), "myVideo");
+    // ✅ Use /tmp directory (Vercel compatible)
+    const targetDir = path.join("/tmp", "myVideo");
     if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir);
+      fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    const targetPath = path.join(targetDir, "vid.mp4");
+    const targetPath = path.join(targetDir, `vid-${Date.now()}.mp4`);
     fs.copyFileSync(uploadedPath, targetPath);
 
     console.log("Copied video to:", targetPath);
 
-    // 2️⃣ EXACT SAME CODE THAT WORKED
+    // 2️⃣ Upload to Gemini
     let file = await ai.files.upload({
       file: targetPath,
       config: { mimeType: "video/mp4" },
@@ -216,20 +146,30 @@ Be concise, practical, and beginner-friendly.
       ],
     });
 
+    // ✅ Clean up temp files
+    try {
+      fs.unlinkSync(targetPath);
+      fs.unlinkSync(uploadedPath);
+    } catch (cleanupErr) {
+      console.warn("Cleanup warning:", cleanupErr.message);
+    }
+
     res.json({
       success: true,
       feedback: result.text,
     });
   } catch (err) {
     console.error("ANALYZE ERROR:", err);
-    res.status(500).json({ message: "Analysis failed" });
+    res.status(500).json({ message: "Analysis failed", error: err.message });
   }
 });
-
 
 /* ===========================
    🚀 START SERVER
 =========================== */
-app.listen(5000, "0.0.0.0", () => {
-  console.log("Server running on port 5000");
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
 });
+
+export default app;
